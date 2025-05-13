@@ -1,0 +1,757 @@
+% Fantasy Hockey Auction Draft Strategy Report
+\documentclass[11pt]{article}
+
+% -------------------------------------------------
+% Encoding & Fonts
+% -------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Times‑like text & math fonts for a CS/optimization look
+\usepackage{newtxtext,newtxmath}
+% Better micro‑typography (kerning, protrusion)
+\usepackage{microtype}
+
+% -------------------------------------------------
+% Page Layout
+% -------------------------------------------------
+% Typical 1‑inch margins on US Letter / A4
+\usepackage[margin=1in]{geometry}
+
+% -------------------------------------------------
+% Mathematics & Algorithms
+% -------------------------------------------------
+\usepackage{amsmath,amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% -------------------------------------------------
+% Graphics & Figures
+% -------------------------------------------------
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+
+% -------------------------------------------------
+% Tables & Listings
+% -------------------------------------------------
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% -------------------------------------------------
+% Hyperlinks (load last)
+% -------------------------------------------------
+\usepackage[pdftex,pdfpagelabels=false,plainpages=false]{hyperref}
+
+% -------------------------------------------------
+% Custom Colours & Listing Style
+% -------------------------------------------------
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+backgroundcolor=\color{backcolour},
+commentstyle=\color{codegreen},
+keywordstyle=\color{magenta},
+numberstyle=\tiny\color{codegray},
+stringstyle=\color{codepurple},
+basicstyle=\ttfamily\footnotesize,
+breakatwhitespace=false,
+breaklines=true,
+captionpos=b,
+keepspaces=true,
+numbers=left,
+numbersep=5pt,
+showspaces=false,
+showstringspaces=false,
+showtabs=false,
+tabsize=2
+}
+\lstset{style=mystyle}
+
+% -------------------------------------------------
+% Title Information
+% -------------------------------------------------
+\title{Learning to Bid: Deep Counterfactual Regret Minimization in Fantasy Hockey Auctions}
+\author{Sparsh Agrawal}
+\date{May 2025}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report presents a novel application of Deep Counterfactual Regret Minimization (Deep CFR) to optimize bidding strategies in fantasy hockey auction drafts. We explore the challenges of developing an AI agent capable of competing with human players in a complex, imperfect information game setting. Through iterative development and testing of multiple approaches including AlphaZero and Proximal Policy Optimization (PPO), we demonstrate that Deep CFR provides an effective framework for learning competitive bidding strategies. Our implementation successfully handles the unique constraints of fantasy hockey auctions, including fixed budgets, roster requirements, and sequential decision-making under uncertainty.
+\end{abstract}
+
+\section{Introduction}
+\subsection{Problem Statement}
+Fantasy hockey auction drafts present a complex optimization challenge where $n$ players must draft teams consisting of $o$ forwards, $d$ defensemen, and $g$ goalies, each working within a fixed budget $b$. The auction follows an English format where players either raise bids by 1 or fold, with the last remaining player winning the athlete at their bid price. This creates a rich strategic environment combining resource management, valuation assessment, and competitive bidding.
+
+\subsection{Game Environment}
+Our final implementation uses a custom game environment with the following key characteristics:
+\begin{itemize}
+    \item Fixed budget of \$100 per player
+    \item Support for 4 players
+    \item Pre-defined athlete pools with known values:
+        \begin{itemize}
+            \item 24 forwards (values ranging from 278-520)
+            \item 16 defensemen (values ranging from 191-307)
+            \item 8 goalies (values ranging from 193-273)
+        \end{itemize}
+    \item Discrete action space with 101 possible bid values (0-100\%)
+\end{itemize}
+
+\subsection{Existing Methods}
+Current fantasy sports platforms offer limited automated drafting capabilities that exhibit several exploitable weaknesses:
+
+\begin{itemize}
+    \item \textbf{Value-Based Bidding}: Existing systems typically use simple value-based bidding where they:
+    \begin{itemize}
+        \item Bid up to a fixed percentage of an athlete's projected value
+        \item Fail to adapt to market dynamics
+        \item Ignore position scarcity and roster composition
+    \end{itemize}
+    
+    \item \textbf{Predictable Patterns}: Common exploitable behaviors include:
+    \begin{itemize}
+        \item Consistent early-round overbidding
+        \item Rigid maximum bid thresholds
+        \item Failure to capitalize on late-round value
+    \end{itemize}
+    
+    \item \textbf{Market Opportunity}: The limitations of current systems create opportunities for:
+    \begin{itemize}
+        \item More sophisticated bidding strategies
+        \item Dynamic adaptation to opponent behavior
+        \item Improved resource allocation across positions
+    \end{itemize}
+\end{itemize}
+
+\subsection{Motivation}
+The project emerged from personal experience with fantasy hockey auctions, where the lack of sophisticated automated strategies presented an opportunity for innovation. While platforms like ESPN offer basic automated drafting, these systems employ simplistic strategies that experienced players can easily exploit. Often if someone doesn't show up to the draft, an automated bot will play for them, and this bot ends up being very exploitable. This gap in the market, combined with the theoretical richness of the problem, motivated our research into developing more robust bidding strategies.
+
+\section{Literature Review}
+\subsection{Current State of the Field}
+The domain of fantasy sports auction optimization remains largely unexplored in academic literature. Current industry solutions, such as ESPN's automated drafting system, rely on analyst-suggested values with hard-coded bidding caps, making them predictable and exploitable. This presents an opportunity for applying modern machine learning techniques to develop more sophisticated strategies.
+
+\subsection{Related Work}
+While direct precedent is limited, our work draws from several related fields:
+\begin{itemize}
+    \item Colonel Blotto games, which share similar resource allocation dynamics
+    \item Sequential auction theory, providing theoretical foundations
+    \item Deep learning applications in imperfect information games
+\end{itemize}
+
+\section{Methodology}
+\subsection{Approach Evolution}
+We tried three different approaches in this project:
+
+\subsubsection{AlphaZero Method}
+Initially, we explored an AlphaZero-style approach using Monte Carlo Tree Search (MCTS). The policy function was defined as:
+\[
+\pi^*(s) = \arg\max_{a \in \{\text{raise}, \text{fold}\}} Q(s, a)
+\]
+However, the enormous search space ($O(2^{nb})$) and computational overhead made this approach impractical.
+
+\subsubsection{PPO Implementation}
+We then investigated Proximal Policy Optimization with a clipped surrogate objective:
+\[
+L^{CLIP}(\theta) = \mathbb{E}_t \Big[\min\big(r_t(\theta) A_t,\; \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t\big)\Big]
+\]
+The policy outputted a mean and variance which was moment-matched to a beta distribution:
+\[
+\text{bid} = b_r \cdot x, \quad x \sim \text{Beta}(\alpha, \beta)
+\]
+
+\subsubsection{Deep CFR Final Implementation}
+Our final approach used Deep Counterfactual Regret Minimization, focusing on expected reward prediction:
+\[
+Q(s,a) = \text{Expected Reward given action } a
+\]
+With regret calculation:
+\[
+R(s,a) = Q(s,a) - \sum_{a'} \pi(s,a') Q(s,a')
+\]
+And policy updates via regret matching:
+\[
+\sigma(s,a) = \frac{\max(R(s,a), 0)}{\sum_{a'} \max(R(s,a'), 0)}
+\]
+
+\section{Approach Comparison and Challenges}
+Each approach we explored presented unique challenges and insights, leading to our final choice of Deep CFR:
+
+\subsection{AlphaZero Challenges}
+The AlphaZero approach faced fundamental limitations that made it impractical for our use case:
+
+\begin{itemize}
+    \item \textbf{Computational Intractability}
+    \begin{itemize}
+        \item Game tree complexity of $O(2^{nb})$ made training untenable
+        \item Even with significant simplifications, could not scale beyond trivial cases
+        \item The only case that we solved was a simple case where the optimal strategy was to bid as high as you could.
+    \end{itemize}
+    
+    \item \textbf{Scaling Issues}
+    \begin{itemize}
+        \item Attempts to reduce game size still hit computational barriers
+        \item MCTS search depth requirements grew exponentially
+        \item Memory requirements became prohibitive quickly
+    \end{itemize}
+\end{itemize}
+
+\subsection{PPO Implementation Issues}
+The PPO approach revealed fundamental limitations in handling the auction dynamics:
+
+\begin{itemize}
+    \item \textbf{Credit Assignment Problems}
+    \begin{itemize}
+        \item Critical early-game decisions (bidding on top players) were undervalued
+        \item Traditional reward discounting actively hurt performance as it insufficiently credited early game actions
+        \item Temporal structure of auction games poorly suited to PPO framework
+    \end{itemize}
+    
+    \item \textbf{Action Distribution Modeling}
+    \begin{itemize}
+        \item Beta distribution moment matching converged to point estimates
+        \item A limitation of this approach is also the parameterization of the strategy space as a beta distribution. A priori it is not clear that such a unimodal distribution is the best way to parameterize the strategy space. However, I will note our final implementation often plays uniomodal distributions so this need not be a limitation.
+        \item Alternative clipped normal distributions showed no improvement
+    \end{itemize}
+\end{itemize}
+
+\subsection{Deep CFR Advantages and Modifications}
+Our final Deep CFR implementation included several key modifications to the standard algorithm:
+
+\begin{itemize}
+    \item \textbf{Key Modifications}
+    \begin{itemize}
+        \item Q-function prediction instead of direct regret estimation. My belief was this function would be more stable over time as it doesn't depend on a volatile policy
+        \item Linear reservoir sampling weighted by iteration number which lead to faster convergence
+        \item Extended to handle n-player scenarios. Even though there is no theoretical guarantee, it empirically worked well
+    \end{itemize}
+
+    \subsubsection{Q-Function Modification}
+    Our modification to the standard Deep CFR algorithm replaces direct regret estimation with Q-function learning:
+
+    \begin{itemize}
+        \item \textbf{Traditional CFR}
+        \begin{itemize}
+            \item Directly estimates cumulative regret
+            \item Updates based on counterfactual value differences
+            \item Can be unstable in early training
+        \end{itemize}
+        
+        \item \textbf{Q-Function Approach}
+        \begin{itemize}
+            \item Learns expected value of state-action pairs
+            \item Regret computed from Q-values: $R(s,a) = Q(s,a) - \sum_{a'} \pi(s,a') Q(s,a')$
+            \item More stable training dynamics
+            \item Better generalization across similar states
+        \end{itemize}
+    \end{itemize}
+
+    \subsubsection{Linear Reservoir Sampling}
+    Our custom reservoir sampling approach weights samples by their iteration:
+
+    \begin{itemize}
+        \item \textbf{Implementation}
+        \begin{itemize}
+            \item Sample weight proportional to iteration number
+            \item Newer samples more likely to be retained
+            \item Balances exploration and exploitation
+        \end{itemize}
+        
+        \item \textbf{Benefits}
+        \begin{itemize}
+            \item Better adaptation to evolved strategies
+            \item Improved sample efficiency
+            \item Natural curriculum learning effect
+        \end{itemize}
+    \end{itemize}
+
+    \subsubsection{N-Player Extension}
+    Extending Deep CFR to n-player scenarios required several considerations:
+
+    \begin{itemize}
+        \item \textbf{State Space Handling}
+        \begin{itemize}
+            \item Expanded state representation for multiple players
+            \item Efficient encoding of multi-player history
+            \item Scalable memory management
+        \end{itemize}
+        
+        \item \textbf{Training Dynamics}
+        \begin{itemize}
+            \item Increased variance in value estimates
+            \item More complex equilibrium landscape
+            \item Longer convergence times
+        \end{itemize}
+    \end{itemize}
+    
+    \item \textbf{Theoretical Benefits}
+    \begin{itemize}
+        \item Strong game theoretical guarantees from CFR framework
+        \item Natural handling of imperfect information
+        \item Better suited to sequential decision-making
+    \end{itemize}
+    
+    \item \textbf{Implementation Advantages}
+    \begin{itemize}
+        \item Q-function approach provided more stable training
+        \item Linear reservoir sampling improved sample efficiency
+        \item Successfully scaled to multi-player scenarios
+    \end{itemize}
+\end{itemize}
+
+\subsection{Comparative Analysis}
+Our exploration of these approaches revealed several key insights:
+
+\begin{itemize}
+    \item \textbf{Computational Feasibility}
+    \begin{itemize}
+        \item AlphaZero: Intractable beyond trivial cases
+        \item PPO: Computationally feasible but strategically limited
+        \item Deep CFR: Best balance of computational cost and performance
+    \end{itemize}
+    
+    \item \textbf{Strategic Depth}
+    \begin{itemize}
+        \item AlphaZero: Potentially optimal but couldn't scale
+        \item PPO: Limited by action distribution modeling
+        \item Deep CFR: Rich strategy space with theoretical backing
+    \end{itemize}
+    
+    \item \textbf{Practical Applicability}
+    \begin{itemize}
+        \item AlphaZero: Limited to minimal test cases
+        \item PPO: Struggled with crucial early-game decisions
+        \item Deep CFR: Successfully handled full game complexity
+    \end{itemize}
+\end{itemize}
+
+\section{Technical Implementation}
+\subsection{State Representation}
+The state space for our fantasy hockey auction environment consists of several key components:
+
+\begin{itemize}
+    \item \textbf{Player Information}
+    \begin{itemize}
+        \item Current budget (normalized to [0,1])
+        \item Roster slots filled by position
+        \item Historical bidding patterns
+    \end{itemize}
+    
+    \item \textbf{Auction State}
+    \begin{itemize}
+        \item Current athlete being auctioned
+        \item Current bid amount
+        \item Active bidders
+        \item Round number
+    \end{itemize}
+    
+    \item \textbf{Global Information}
+    There are many other features that would be relevant such as:
+    \begin{itemize}
+        \item Remaining athletes by position
+        \item Average value of remaining athletes
+        \item Position scarcity metrics
+    \end{itemize}
+
+    However, because we train on a fixed universe of athletes with a fixed nomination order, these are embedded in the game's structure.
+\end{itemize}
+
+\subsection{Custom Sampling Strategy}
+Our implementation uses a novel sampling approach to improve training stability:
+
+\begin{lstlisting}[language=Python]
+def custom_weight_calculation(self, sample_num):
+    # Exponential weighting scheme
+    base = np.random.uniform()
+    exponent = 100000 / sample_num #constant for numerical stability
+    weight = base ** exponent
+    return weight / self.total_weight
+\end{lstlisting}
+
+This approach provides several benefits:
+\begin{itemize}
+    \item Balances exploration and exploitation
+    \item Reduces variance in early training
+    \item Improves convergence stability
+\end{itemize}
+
+\subsection{Batching Optimizations}
+We implemented three levels of simulation batching that provided significant performance improvements:
+
+\subsubsection{Sequential Simulation}
+Basic implementation with no parallelization, serving as our baseline:
+\begin{lstlisting}[language=Python]
+for env in environments:
+    action = model.predict(env.state)
+    next_state, reward = env.step(action)
+\end{lstlisting}
+
+\subsubsection{Partial Batching}
+Intermediate optimization with batched predictions, which achieved a 5-7x speedup over sequential simulation:
+\begin{lstlisting}[language=Python]
+states = torch.stack([env.state for env in environments])
+actions = model.predict_batch(states)
+results = [env.step(a) for env, a in zip(environments, actions)]
+\end{lstlisting}
+
+This approach batches the neural network inference across multiple environments, significantly reducing GPU overhead by processing multiple states simultaneously.
+
+\subsubsection{Full Batching}
+Advanced implementation with branch merging, which achieved an additional 3-4x speedup over partial batching (15-20x total speedup over sequential):
+\begin{lstlisting}[language=Python]
+class BatchedSimulator:
+    def __init__(self, batch_size=2048):
+        self.batch_size = batch_size
+        self.active_envs = []
+        
+    def step_batch(self):
+        states = self.collect_states()
+        actions = self.model.predict_batch(states)
+        self.process_actions(actions)
+        self.merge_similar_branches()
+\end{lstlisting}
+
+The full batching approach extends batching to all aspects of simulation:
+\begin{itemize}
+    \item Batches neural network inference across all active environments
+    \item Merges similar decision branches to reduce redundant computation
+    \item Processes multiple game trajectories in parallel
+    \item Efficiently handles branch termination and new branch creation
+\end{itemize}
+
+This optimization was crucial for making training feasible, reducing simulation time for 1000 games from approximately 2 hours to 6 minutes. The dramatic speedup enabled us to scale the game beyond the 2 player version into a 4 player game.
+
+\subsection{Memory Management}
+To handle the large state space efficiently, we implemented several memory optimization techniques:
+
+\begin{itemize}
+    \item \textbf{Reservoir Sampling}: Maintains fixed-size buffers for training data
+    \item \textbf{State Compression}: Efficient encoding of game states. Locking in the player universe and nomination order allowed for a much more condensed state space.
+\end{itemize}
+
+\section{Implementation}
+\subsection{Neural Network Architecture}
+We implemented two key neural networks:
+
+\subsubsection{Regret Network}
+The regret network predicts counterfactual values for state-action pairs:
+\begin{lstlisting}[language=Python]
+    class RegretNetwork(nn.Module):
+    def __init__(self, hidden_sizes=[128, 64, 32]):
+        super().__init__()
+        input_size = FUNCTION_CONFIG["obs_dim"] + 1
+        layers = [nn.Linear(input_size, hidden_sizes[0]), nn.ReLU()]
+        
+        for i in range(len(hidden_sizes) - 1):
+            layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i+1]))
+            layers.append(nn.ReLU())
+
+        self.network = nn.Sequential(*layers)
+        self.output_layer = nn.Linear(hidden_sizes[-1], 1)
+
+    def forward(self, x):
+        x = self.network(x)  
+        output = self.output_layer(x)  
+        return torch.tanh(output).squeeze(-1
+\end{lstlisting}
+
+\subsubsection{Policy Network}
+The policy network learns the optimal bidding strategy:
+\begin{lstlisting}[language=Python]
+    class PolicyNetwork(nn.Module):
+    def __init__(self, hidden_sizes=[256, 256, 128]):
+        super().__init__()
+        input_size = FUNCTION_CONFIG["obs_dim"]
+        layers = [nn.Linear(input_size, hidden_sizes[0]), nn.ReLU()]
+        
+        for i in range(len(hidden_sizes) - 1):
+            layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i+1]))
+            layers.append(nn.ReLU())
+
+        self.network = nn.Sequential(*layers)
+        self.output_layer = nn.Linear(hidden_sizes[-1], FUNCTION_CONFIG["n_discrete"])
+
+    def forward(self, x):
+        x = self.network(x)  
+        log_probs = torch.log_softmax(self.output_layer(x), dim=-1)  # Log-probabilities
+        return log_probs
+\end{lstlisting}
+
+\subsection{Training Process}
+Our training implementation includes several key optimizations:
+
+\subsubsection{Configuration Parameters}
+\begin{itemize}
+    \item Policy reservoir size: 25,000 samples. This is smaller as the output space is much larger.
+    \item Q value reservoir size: 1,000,000 samples
+    \item Batch size: 2,048
+    \item Learning rate: 0.001
+    \item Training iterations: 10,000
+\end{itemize}
+
+\subsection{Loss Functions}
+\subsubsection{Policy Network Training}
+We use Jensen-Shannon divergence for policy network training. This was chosen as KL divergence was unstable as it has unbounded loss values. Jensen-Shannon divergence is a symmetric divergence that is always non-negative and bounded.
+\begin{lstlisting}[language=Python]
+def jensen_shannon_divergence(log_p, q, eps=1e-12):
+    p = torch.exp(log_p)
+    q = q + eps
+    q = q / q.sum(dim=-1, keepdim=True)
+    m = 0.5 * (p + q)
+    log_m = torch.log(m + eps)
+    kl_pm = F.kl_div(log_p, m, reduction="batchmean")
+    kl_qm = F.kl_div(log_m, q, reduction="batchmean")
+    return 0.5 * (kl_pm + kl_qm)
+\end{lstlisting}
+
+\subsubsection{Q Function Network Training}
+For the Q function network, we use weighted mean squared error:
+\[
+\text{Loss} = \mathbb{E}_{s,a,r,w \sim \mathcal{D}} \left[w \cdot (Q(s,a) - r)^2\right]
+\]
+where $w$ is the importance weight calculated as:
+\[
+w = \frac{1}{\text{reach} + \epsilon} \cdot \frac{1}{\sum_{i} w_i}
+\]
+
+\section{Results}
+\subsection{Qualitative Performance}
+Our Deep CFR implementation demonstrated strong performance across various testing scenarios:
+
+\begin{itemize}
+    \item \textbf{Human Expert Evaluation}
+    \begin{itemize}
+        \item Successfully competed against course professor
+        \item Performed well against experienced fantasy hockey players
+        \item Demonstrated non-trivial bidding strategies that surprised human experts
+    \end{itemize}
+    
+    \item \textbf{Multi-Player Dynamics}
+    \begin{itemize}
+        \item Particularly strong performance in two-player scenarios
+        \item Showed competent but less dominant performance in four-player games
+        \item Suggests interesting dynamics between game complexity and human comprehension
+    \end{itemize}
+    
+    \item \textbf{Strategic Depth}
+    \begin{itemize}
+        \item Developed sophisticated budget management strategies
+        \item Demonstrated understanding of position scarcity
+        \item Adapted bidding behavior based on opponent actions. For example, in the two player version, often times the agent would bid such that it would ensure it still had more capital than you for later players.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Training Infrastructure}
+The system was trained on a 2020 MacBook Pro with the following characteristics:
+
+\begin{itemize}
+    \item \textbf{Training Duration}
+    \begin{itemize}
+        \item 566 iterations
+        \item Total training time of several days. Each iteration takes roughly 10 minutes.
+        \item Efficient memory utilization throughout training.
+    \end{itemize}
+    
+    \item \textbf{Scaling Characteristics}
+    \begin{itemize}
+        \item Two-player scenarios showed faster convergence
+        \item Four-player scenarios required more training time
+        \item Suggests potential benefits from more extensive training or model complexity
+    \end{itemize}
+\end{itemize}
+
+\subsection{System Adaptability}
+The implementation demonstrates strong adaptability across different scenarios:
+
+\begin{itemize}
+    \item \textbf{League Configuration}
+    \begin{itemize}
+        \item Easily adaptable to different scoring systems. We jsut adjust our expected player values accordingly.
+        \item Flexible reward function design. Currently the agent optimizes for win probability and rank, this could be adjusted to optimize for other metrics based off your league's payout structure.
+        \item Configurable for various roster requirements. We could adjust the number of players and the number of roster spots to be more or less than the standard 12 player roster with 6 forwards, 4 defensemen, and 2 goalies.
+    \end{itemize}
+    
+\end{itemize}
+
+\subsection{Key Observations}
+Several important insights emerged from our testing:
+
+\begin{itemize}
+    \item Two-player scenarios may actually present more complex strategy spaces than initially assumed. Because your actions affect your opponents more there is more complexity involved in developing optimal counter-strategies. As the number of players $n$ increases, having more optimal player valuations starts to matter more than the actual auction strategy.
+    \item Human players found it harder to develop optimal counter-strategies in two-player games
+    \item System's performance scaled differently with number of players than expected
+    \item Suggests interesting directions for future research in multi-player dynamics
+\end{itemize}
+
+
+\section{Future Work}
+\subsection{Performance Improvements}
+Several promising directions for improvement include:
+
+\begin{itemize}
+    \item \textbf{Scaling To More Complex Settings}
+    \begin{itemize}
+        \item Larger model architectures for complex multi-player dynamics
+        \item Specialized training regimes for >2 players
+        \item Improved opponent modeling
+        \item Would like to see greater generalizability in the player universe. Ideally a single model that can adapt to different player pools and scoring systems would be developed. We were unable to acomplish that in this project.
+        \item Removing the assumption of consensus on player valuations would be interesting. In the real world there is disagreement on how much players are going to score in a season, modelling that in would be a great step forward.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Extensions to Other Domains}
+The techniques developed here could be applied to other auction settings:
+
+\begin{itemize}
+    
+    \item \textbf{General Auction Domains}
+    \begin{itemize}
+        \item Real estate auctions
+        \item Online marketplace bidding
+        \item Resource allocation markets
+    \end{itemize}
+\end{itemize}
+
+\subsection{Practical Improvements}
+Several practical enhancements could make the system more useful:
+
+\begin{itemize}
+    \item \textbf{User Interface}
+    \begin{itemize}
+        \item Web-based interface for easier access
+        \item Real-time strategy visualization
+        \item Interactive training process monitoring
+    \end{itemize}
+    
+    \item \textbf{Integration Features}
+    \begin{itemize}
+        \item API for fantasy sports platforms
+        \item Real-time data updates
+        \item Custom scoring system support
+    \end{itemize}
+    
+    \item \textbf{Analysis Tools}
+    \begin{itemize}
+        \item Strategy explanation features
+        \item Post-draft analysis
+        \item Training progress visualization
+    \end{itemize}
+\end{itemize}
+
+\subsection{Theoretical Extensions}
+Several theoretical directions warrant further investigation:
+
+\begin{itemize}
+    \item \textbf{Equilibrium Analysis}
+    \begin{itemize}
+        \item Formal proof of convergence in n-player setting
+        \item Characterization of equilibrium properties
+        \item Impact of information structure on strategies
+    \end{itemize}
+    
+    \item \textbf{Algorithm Improvements}
+    \begin{itemize}
+        \item Alternative Q-function architectures
+        \item Novel sampling strategies
+        \item Hybrid approaches combining multiple methods
+    \end{itemize}
+\end{itemize}
+
+\section{Practical Implications}
+\subsection{Lessons from Implementation}
+Our implementation revealed several practical insights:
+
+\begin{itemize}
+    \item \textbf{Algorithm Selection}
+    \begin{itemize}
+        \item Theoretical guarantees often translate to practical benefits
+        \item Simpler approaches (AlphaZero) can fail due to scaling issues
+        \item Balance between theoretical elegance and practical feasibility is crucial
+    \end{itemize}
+    
+    \item \textbf{Training Considerations}
+    \begin{itemize}
+        \item Consumer hardware can be sufficient for meaningful results
+        \item Careful algorithm modification more important than computational power
+        \item Efficient implementation crucial for practical training times
+    \end{itemize}
+\end{itemize}
+
+\subsection{Real-World Applications}
+The project has several immediate practical applications:
+
+\begin{itemize}
+    \item \textbf{Fantasy Sports}
+    \begin{itemize}
+        \item Direct application to fantasy hockey auctions
+        \item Adaptable to other fantasy sports formats
+        \item Potential for integration with existing platforms
+    \end{itemize}
+    
+    \item \textbf{Training Tool}
+    \begin{itemize}
+        \item Helps players understand optimal bidding strategies
+        \item Reveals counter-intuitive strategic insights
+        \item Provides practice environment for human players
+    \end{itemize}
+\end{itemize}
+
+\subsection{Key Insights}
+Several important insights emerged from our work:
+
+\begin{itemize}
+    \item \textbf{Strategic Complexity}
+    \begin{itemize}
+        \item Two-player scenarios often more complex than anticipated
+        \item Early-game decisions disproportionately important
+        \item Position scarcity creates interesting strategic dynamics
+    \end{itemize}
+    
+    \item \textbf{Algorithm Design}
+    \begin{itemize}
+        \item Q-function estimation more stable than direct regret learning
+        \item Sample weighting crucial for efficient learning
+        \item Multi-player scenarios require careful handling
+    \end{itemize}
+\end{itemize}
+
+\subsection{Limitations}
+Important limitations to consider include:
+
+\begin{itemize}
+    \item \textbf{Computational}
+    \begin{itemize}
+        \item Training time increases significantly with player count
+        \item Memory requirements grow with game complexity
+        \item Real-time performance considerations for live use
+    \end{itemize}
+    
+    \item \textbf{Strategic}
+    \begin{itemize}
+        \item Performance gap between 2-player and n-player scenarios
+        \item Potential for unexplored strategic spaces
+        \item Difficulty in explaining agent decisions
+    \end{itemize}
+    
+    \item \textbf{Practical}
+    \begin{itemize}
+        \item A lack of quantitative metrics to evaluate the performance of the agent. We are limited to human feedback and the results of the agent in the auction.
+        \item Current UI limitations
+        \item Need for better visualization tools
+        \item Integration challenges with existing platforms
+        \item Restrictions on a fixed universe of athletes and nomination order. This makes it difficult to apply this in practice directly. Users likely need to train a model for their own league, understand what players are usually worth and then adjust according to the auction dynamics.
+    \end{itemize}
+\end{itemize}
+
+\section{Conclusion}
+This project demonstrates the successful application of Deep CFR to fantasy hockey auction drafts, creating a competitive AI agent capable of sophisticated bidding strategies. The work not only advances the state of automated fantasy sports drafting but also provides insights into the application of modern machine learning techniques to complex game environments.
+
+\section{Acknowledgments}
+Special thanks to Professor Damek for his guidance and support throughout this project!
+
+\end{document} 
